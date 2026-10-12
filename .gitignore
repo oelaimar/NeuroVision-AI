@@ -1,0 +1,66 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.Python
+build/
+dist/
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# Environment variables / secrets
+.env
+.env.*
+secrets.toml
+
+# Jupyter
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/
+
+# Dataset (too large for Git)
+data/raw/
+data/processed/
+data/cache/
+*.npy
+*.npz
+*.tfrecord
+
+# Training artifacts
+checkpoints/
+backup/
+logs/
+tensorboard_logs/
+runs/
+*.h5
+*.ckpt
+*.weights.h5
+models/checkpoints/
+models/backup/
+
+# Keep the final trained model (needed by the Streamlit app)
+!models/best_model.keras
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Testing / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Type checkers / linters
+.mypy_cache/
+.ruff_cache/
+
+# IDE / editors
+.vscode/
+.idea/
+*.swp
+
+# OS files
+.DS_Store
+Thumbs.db
