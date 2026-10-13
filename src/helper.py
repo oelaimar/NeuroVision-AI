@@ -1,5 +1,6 @@
 
 from PIL import Image
+import os
 # load images and return a tuple of images and skipped images
 
 def load_image(folder_path : str) -> tuple[list, list]:
