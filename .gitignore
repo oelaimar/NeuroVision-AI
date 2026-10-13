@@ -25,6 +25,7 @@ secrets.toml
 data/raw/
 data/processed/
 data/cache/
+*.zip
 *.npy
 *.npz
 *.tfrecord

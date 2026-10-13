@@ -1,22 +1,25 @@
-
-from PIL import Image
+import cv2
 import os
+from pathlib import Path
 # load images and return a tuple of images and skipped images
 
-def load_image(folder_path : str) -> tuple[list, list]:
-    images = []
-    skipped_images = []
+def load_image(fold_path : str) -> tuple[list, list]:
+    imgs = []
+    skipped_imgs = []
 
-    for filename in os.listdir(folder_path):
-        image_path = os.path.join(folder_path, filename)
+    for filename in os.listdir(fold_path):
+        image_path = os.path.join(fold_path, filename)
 
         try:
-            with Image.open(image_path) as img:
-                images.append(img.convert("RGB").copy())
+           img = cv2.imread(image_path)
+           if img is None:
+                raise ValueError("OpenCV could not decode this file")
 
+           imgs.append(img)
         except Exception as e:
             print(f"WARNING: Could not read {image_path}: {e}")
-            skipped_images.append(image_path)
-    print(f"Successfully loaded: {len(images)} images")
-    print(f"Skipped: {len(skipped_images)} images")
-    return images, skipped_images
+            skipped_imgs.append(image_path)
+
+    print(f"Successfully loaded: {len(imgs)} images")
+    print(f"Skipped: {len(skipped_imgs)} files")
+    return imgs, skipped_imgs
