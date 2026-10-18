@@ -8,7 +8,7 @@ ALLOWED_EXT = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"}
 def predict_image(path, model, classes, img_size=(224, 224), min_conf=0.60):
     if not isinstance(path, (str, os.PathLike)):
         raise TypeError(f"path must be a str or PathLike, got {type(path).__name__}")
-        path = os.fspath(path)
+    path = os.fspath(path)
     if not path.strip():
         raise ValueError("path is empty")
     if not os.path.exists(path):
@@ -25,7 +25,7 @@ def predict_image(path, model, classes, img_size=(224, 224), min_conf=0.60):
     if os.path.getsize(path) == 0:
         raise ValueError(f"file is empty: {path}")
 
-    img = cv2().imread(path)
+    img = cv2.imread(path)
     if img is None:
         raise ValueError(f"OpenCV could not decode this file (corrupt or not a real image): {path}")
 
