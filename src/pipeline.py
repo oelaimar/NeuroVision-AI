@@ -19,7 +19,6 @@ def build_augmenter() -> tf.keras.Sequential:
             tf.keras.layers.RandomZoom(0.1, fill_mode="constant", fill_value=0.0),
             tf.keras.layers.RandomBrightness(0.1, value_range=(0, 255)),
             tf.keras.layers.RandomContrast(0.1),
-            tf.keras.layers.GaussianNoise(5.0),
         ],
         name="mri_augmentation",
     )
