@@ -50,7 +50,7 @@ def safe_predict(path, model, classes, **kwargs):
         return None
 
 def show_prediction(result, title=None):
-    import matplotlib as plt
+    import matplotlib.pyplot as plt
     if result is None:
         return
     fig, ax = plt.subplots(1, 2, figsize=(9, 3.5))
