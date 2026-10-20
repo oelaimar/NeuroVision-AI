@@ -1,8 +1,10 @@
 import hashlib
 import os
-
+import json
 import numpy as np
 import tensorflow as tf
+from dataclasses import dataclass, asdict
+from functools import lru_cache
 
 from src.balance import class_distribution, compute_class_weights
 from src.helper import load_dataset
@@ -10,49 +12,82 @@ from src.helper import load_dataset
 AUTOTUNE = tf.data.AUTOTUNE
 _test_used = False
 
-def build_augmenter() -> tf.keras.Sequential:
+# Single definition of "the data"
+
+@dataclass(frozen=True)
+class DataSpec:
+    raw_dir: str
+    classes: tuple[str, ...]
+    val_split: float = 0.15
+    test_split: float = 0.15
+    target_size: tuple[int, int] = (224, 224)
+    cache_path: str = "data/cache/dataset_224.npz"
+    manifest_path: str = "data/splits_manifest.json"
+    seed: int = 42
+    dedup: bool = True
+
+    def key(self) -> str:
+        """Hash of everything that changes the data or the split."""
+        d = asdict(self)
+        d.pop("raw_dir")
+        d.pop("cache_path")
+        d.pop("manifest_path")
+        return hashlib.sha256(json.dumps(d, sort_keys=True, default=list).encode()).hexdigest()[:8]
+
+    def keyed(self, path: str) -> str:
+        base, ext = os.path.splitext(path)
+        return f"{base}_{self.key()}{ext}"
+
+
+def build_augmenter(seed: int = 42) -> tf.keras.Sequential:
     return tf.keras.Sequential(
         [
-            tf.keras.layers.RandomFlip("horizontal"),
-            tf.keras.layers.RandomRotation(0.03, fill_mode="constant", fill_value=0.0),
-            tf.keras.layers.RandomTranslation(0.05, 0.05, fill_mode="constant", fill_value=0.0),
-            tf.keras.layers.RandomZoom(0.1, fill_mode="constant", fill_value=0.0),
-            tf.keras.layers.RandomBrightness(0.1, value_range=(0, 255)),
-            tf.keras.layers.RandomContrast(0.1),
+            tf.keras.layers.RandomFlip("horizontal", seed=seed),
+            tf.keras.layers.RandomRotation(0.03, fill_mode="constant", fill_value=0.0, seed=seed),
+            tf.keras.layers.RandomTranslation(0.05, 0.05, fill_mode="constant", fill_value=0.0, seed=seed),
+            tf.keras.layers.RandomZoom(0.1, fill_mode="constant", fill_value=0.0, seed=seed),
+            tf.keras.layers.RandomBrightness(0.1, value_range=(0, 255), seed=seed),
+            tf.keras.layers.RandomContrast(0.1, seed=seed),
         ],
         name="mri_augmentation",
     )
 
-_augmenter = build_augmenter()
+def _finalize(ds: tf.data.Dataset, batch_size: int, augment:bool, seed: int) -> tf.data.Dataset:
+    opts = tf.data.Options()
+    opts.deterministic = True
+    ds = ds.with_options(opts).batch(batch_size)
 
-def _normalize(x, y):
-    return tf.cast(x, tf.float32) / 255.0, y
+    augmenter = build_augmenter(seed) if augment else None
 
-def _augment_and_normalize(x, y):
-    x = _augmenter(tf.cast(x, tf.float32), training=True)
-    x = tf.clip_by_value(x, 0.0, 255.0)
-    return x / 255.0, y
+    def prep(x, y):
+        x = tf.cast(x, tf.float32)
+        if augmenter is not None:
+            x = tf.clip_by_value(augmenter(x, training=True), 0.0, 255.0)
+        return x / 255.0, y
 
-def _finalize(ds: tf.data.Dataset, batch_size: int, augment:bool) -> tf.data.Dataset:
-    ds = ds.batch(batch_size)
-    ds = ds.map(_augment_and_normalize if augment else _normalize, num_parallel_calls=AUTOTUNE)
+    ds = ds.map(prep, num_parallel_calls=1 if augment else AUTOTUNE)
     return ds.prefetch(AUTOTUNE)
 
-def load_dataset_cached(
-    raw_dir: str,
-    classes: list[str],
-    cache_path: str = "data/cache/dataset_224.npz",
-    target_size: tuple[int, int] = (224, 224),
-    seed: int = 42,
-) -> tuple[np.ndarray, np.ndarray]:
-    if os.path.exists(cache_path):
-        data = np.load(cache_path)
-        return data["X"], data["y"]
-
-    X, y = load_dataset(raw_dir, classes, target_size=target_size, seed=seed)
-    os.makedirs(os.path.dirname(cache_path), exist_ok=True)
-    np.savez(cache_path, X=X, y=y)
-    return X, y
+def _load_cached(spec: DataSpec) -> tuple[np.ndarray, np.ndarray]:
+    path = spec.keyed(spec.cache_path)
+    if os.path.exists(path):
+        with np.load(path) as data:
+            if list(data["classes"]) != list(spec.classes):
+                raise ValueError(
+                    f"Cache {path} has a different class order. Delete it."
+                )
+            X = data["X"].copy()
+            y = data["y"].astype(np.int64)
+        return X, y
+    X, y = load_dataset(
+        spec.raw_dir,
+        list(spec.classes),
+        target_size=spec.target_size,
+        seed=spec.seed,
+    )
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    np.savez(path, X=X, y=y, classes=np.array(spec.classes))
+    return X, y.astype(np.int64)
 
 def remove_duplicates(X: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Drop exact duplicate images BEFORE splitting, so the same image can't
@@ -67,7 +102,7 @@ def remove_duplicates(X: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndar
     print(f"Duplicates removed: {len(X) - len(keep)} (kept {len(keep)})")
     return X[keep], y[keep]
 
-def stratified_split(X, y, val_split: float = 0.15, test_split: float = 0.15, seed: int = 42):
+def stratified_split_indices(y, val_split: float, test_split: float, seed: int):
     rng = np.random.default_rng(seed)
     train_idx, val_idx, test_idx = [], [], []
 
@@ -83,23 +118,38 @@ def stratified_split(X, y, val_split: float = 0.15, test_split: float = 0.15, se
     train_idx, val_idx, test_idx = map(np.array, (train_idx, val_idx, test_idx))
     assert not (set(train_idx) & set(val_idx) | set(train_idx) & set(test_idx) | set(val_idx) & set(test_idx)), \
         "Leakage: splits overlap"
-    return (X[train_idx], y[train_idx]), (X[val_idx], y[val_idx]), (X[test_idx], y[test_idx])
+    return train_idx, val_idx, test_idx
 
-def get_splits(
-        raw_dir:str,
-        classes: list[str],
-        val_split: float = 0.15,
-        test_split: float = 0.15,
-        target_size: tuple[int, int] = (224, 224),
-        cache_path: str = "data/cache/dataset_224.npz",
-        seed: int = 42,
-        dedup: bool = True,
-):
-    """Load -> dedup -> stratified split. Nothing is augmented or fitted yet."""
-    X, y = load_dataset_cached(raw_dir, classes, cache_path, target_size, seed)
-    if dedup:
+def _save_or_verify_manifest(spec: DataSpec, idx) -> None:
+    """Save split indices once; on later runs verify they are identical."""
+    path = spec.keyed(spec.manifest_path)
+    tr, va, te = idx
+    digest = hashlib.sha256(json.dumps([tr.tolist(), va.tolist(), te.tolist()]).encode()).hexdigest()[:12]
+    if os.path.exists(path):
+        with open(path) as f:
+            if json.load(f)["sha256_12"] != digest:
+                raise RuntimeError(f"Split drift vs {path}: data or load order changed. Delete it to regenerate.")
+        return
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        json.dump({
+            "spec": asdict(spec),
+            "sha256_12": digest,
+            "n": {"train": len(tr), "val": len(va), "test": len(te)},
+            "train_idx": tr.tolist(), "val_idx": va.tolist(), "test_idx": te.tolist(),
+        }, f)
+
+@lru_cache
+def get_splits(spec: DataSpec):
+    """Load -> dedup -> stratified split. Cached: train, val and test share one run."""
+    X, y = _load_cached(spec)
+    if spec.dedup:
         X, y = remove_duplicates(X, y)
-    return stratified_split(X, y, val_split, test_split, seed)
+
+    idx = stratified_split_indices(y, spec.val_split, spec.test_split, spec.seed)
+    _save_or_verify_manifest(spec, idx)
+    tr, va, te = idx
+    return (X[tr], y[tr]), (X[va], y[va]), (X[te], y[te])
 
 
 def make_tf_dataset(
@@ -113,7 +163,7 @@ def make_tf_dataset(
     ds = tf.data.Dataset.from_tensor_slices((X, y))
     if training:
         ds = ds.shuffle(len(X), seed=seed, reshuffle_each_iteration=True)
-    return _finalize(ds, batch_size, augment=training and augment)
+    return _finalize(ds, batch_size, augment=training and augment, seed=seed)
 
 
 def make_balanced_train_ds(
@@ -137,25 +187,17 @@ def make_balanced_train_ds(
         ds = ds.concatenate(p)
 
     ds = ds.shuffle(target * len(counts), seed=seed, reshuffle_each_iteration=True)
-    return _finalize(ds, batch_size, augment=True)
+    return _finalize(ds, batch_size, augment=True, seed=seed)
 
 
 def get_datasets(
-    raw_dir: str,
-    classes: list[str],
-    batch_size: int = 32,
-    val_split: float = 0.15,
-    test_split: float = 0.15,
-    target_size: tuple[int, int] = (224, 224),
-    cache_path: str = "data/cache/dataset_224.npz",
-    seed: int = 42,
-    strategy: str = "auto",  # "auto" | "none" | "class_weight" | "augment"
-    augment: bool = True,
-    dedup: bool = True,
+        spec: DataSpec,
+        batch_size: int = 32,
+        strategy: str = "auto",  # "auto" | "none" | "class_weight" | "augment"
+        augment: bool = True
 ):
-    (X_train, y_train), (X_val, y_val), (_, y_test) = get_splits(
-        raw_dir, classes, val_split, test_split, target_size, cache_path, seed, dedup
-    )
+    classes, seed = list(spec.classes), spec.seed
+    (X_train, y_train), (X_val, y_val), (_, y_test) = get_splits(spec)
 
     counts = class_distribution(y_train, classes, "(train)")
     class_distribution(y_val, classes, "(val)")
@@ -178,26 +220,13 @@ def get_datasets(
     val_ds = make_tf_dataset(X_val, y_val, batch_size, training=False)
     return train_ds, val_ds, class_weight
 
-def get_test_ds(
-    raw_dir: str,
-    classes: list[str],
-    batch_size: int = 32,
-    val_split: float = 0.15,      # must match get_datasets
-    test_split: float = 0.15,     # must match get_datasets
-    target_size: tuple[int, int] = (224, 224),
-    cache_path: str = "data/cache/dataset_224.npz",
-    seed: int = 42,               # must match get_datasets
-    dedup: bool = True,           # must match get_datasets
-    allow_reuse: bool = False,
-) -> tf.data.Dataset:
+def get_test_ds(spec: DataSpec, batch_size: int = 32, allow_reuse: bool = False) -> tf.data.Dataset:
     global _test_used
     if _test_used and not allow_reuse:
         raise RuntimeError(
             "Test set already used. Reusing it for decisions leaks it into your "
             "model selection. Pass allow_reuse=True only if you accept that."
         )
-    _, _, (X_test, y_test) = get_splits(
-        raw_dir, classes, val_split, test_split, target_size, cache_path, seed, dedup
-    )
+    _, _, (X_test, y_test) = get_splits(spec)
     _test_used = True
     return make_tf_dataset(X_test, y_test, batch_size, training=False)
