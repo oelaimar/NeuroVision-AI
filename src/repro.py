@@ -52,10 +52,6 @@ def env_info() -> dict:
     }
 
 def start_run(cfg: Config, spec, name: str = "run") -> Path:
-    """Create runs/<ts>_<name>_seed<seed>/ with config, env, data spec and a copy of the split manifest.
-
-    Call AFTER get_datasets()/get_splits(), which writes the manifest.
-    """
     manifest = Path(spec.keyed(spec.manifest_path))
     if not manifest.exists():
         raise RuntimeError("Split manifest not found. Build the datasets before calling start_run().")

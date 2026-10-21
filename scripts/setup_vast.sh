@@ -11,6 +11,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
 pip install -r requirements-gpu.txt
+pip install -r requirements.txt
 
 echo "== Record versions =="
 {
@@ -23,4 +24,4 @@ echo "== Record versions =="
 } > logs/env_versions.txt
 
 echo "== Smoke test =="
-python scripts/smoke_test_gpu.py | tee logs/smoke_test.txt
+python ./smoke_test_gpu.py | tee logs/smoke_test.txt
