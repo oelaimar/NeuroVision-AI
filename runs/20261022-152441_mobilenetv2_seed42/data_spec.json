@@ -1,0 +1,23 @@
+{
+  "spec": {
+    "raw_dir": "data/raw",
+    "classes": [
+      "glioma",
+      "meningioma",
+      "notumor",
+      "pituitary"
+    ],
+    "val_split": 0.15,
+    "test_split": 0.15,
+    "target_size": [
+      224,
+      224
+    ],
+    "cache_path": "data/cache/dataset_224.npz",
+    "manifest_path": "data/splits_manifest.json",
+    "seed": 42,
+    "dedup": true
+  },
+  "spec_key": "0edfbe43",
+  "manifest_sha256_12": "d316343ace1d"
+}

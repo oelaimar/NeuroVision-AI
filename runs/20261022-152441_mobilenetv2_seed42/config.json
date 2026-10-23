@@ -1,0 +1,30 @@
+{
+  "seed": 42,
+  "deterministic_ops": true,
+  "data_dir": "data/raw",
+  "classes": [
+    "glioma",
+    "meningioma",
+    "notumor",
+    "pituitary"
+  ],
+  "img_size": [
+    224,
+    224
+  ],
+  "val_frac": 0.15,
+  "test_frac": 0.15,
+  "cache_path": "data/cache/dataset_224.npz",
+  "manifest_path": "data/splits_manifest.json",
+  "batch_size": 32,
+  "epochs": 30,
+  "learning_rate": 0.001,
+  "strategy": "auto",
+  "dropout": 0.2,
+  "use_class_weight": true,
+  "head_epochs": 10,
+  "finetune_epochs": 15,
+  "finetune_lr": 1e-05,
+  "finetune_layers": 30,
+  "runs_dir": "runs"
+}
