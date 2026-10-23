@@ -1,9 +1,21 @@
 from pathlib import Path
-
+import keras
 import cv2
 import numpy as np
 import streamlit as st
 import tensorflow as tf
+
+# --- compatibility patch: models saved with a newer Keras add `quantization_config` ---
+if not getattr(keras.layers.Layer, "_qc_patched", False):
+    _orig_layer_init = keras.layers.Layer.__init__
+
+    def _patched_layer_init(self, *args, **kwargs):
+        kwargs.pop("quantization_config", None)
+        _orig_layer_init(self, *args, **kwargs)
+
+    keras.layers.Layer.__init__ = _patched_layer_init
+    keras.layers.Layer._qc_patched = True
+# -------------------------------------------------------------------------------------
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 MODEL_DIR = BASE_DIR / "model"
@@ -15,8 +27,7 @@ st.set_page_config(page_title="NeuroVision")
 
 @st.cache_resource
 def load_model():
-    return tf.keras.models.load_model(MODEL_PATH)
-
+    return tf.keras.models.load_model(MODEL_PATH, compile=False)
 
 def prepare_image(file_bytes):
     if not file_bytes:

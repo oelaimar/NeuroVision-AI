@@ -1,9 +1,22 @@
 from pathlib import Path
 
 import cv2
+import keras
 import numpy as np
 import streamlit as st
 import tensorflow as tf
+
+# --- compatibility patch: models saved with a newer Keras add `quantization_config` ---
+if not getattr(keras.layers.Layer, "_qc_patched", False):
+    _orig_layer_init = keras.layers.Layer.__init__
+
+    def _patched_layer_init(self, *args, **kwargs):
+        kwargs.pop("quantization_config", None)
+        _orig_layer_init(self, *args, **kwargs)
+
+    keras.layers.Layer.__init__ = _patched_layer_init
+    keras.layers.Layer._qc_patched = True
+# -------------------------------------------------------------------------------------
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 MODEL_DIR = BASE_DIR / "model"
@@ -22,7 +35,7 @@ st.set_page_config(page_title="NeuroVision", layout="wide")
 
 @st.cache_resource
 def load_model(path):
-    return tf.keras.models.load_model(path)
+    return tf.keras.models.load_model(path, compile=False)
 
 
 def get_input_size(model):
@@ -57,10 +70,13 @@ st.write("Upload a brain MRI to predict the tumor type with 3 models.")
 # load every model that exists
 models = {}
 for model_name, path in MODEL_PATHS.items():
-    if path.exists():
-        models[model_name] = load_model(path)
-    else:
+    if not path.exists():
         st.error(f"Model not found: {path}")
+        continue
+    try:
+        models[model_name] = load_model(path)
+    except Exception as e:
+        st.error(f"{model_name} failed to load: {e}")
 
 if not models:
     st.stop()
