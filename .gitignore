@@ -35,7 +35,6 @@ checkpoints/
 backup/
 logs/
 tensorboard_logs/
-runs/
 *.h5
 *.ckpt
 *.weights.h5
