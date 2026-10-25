@@ -10,19 +10,6 @@ dist/
 venv/
 .venv/
 
-# Jupyter
-.ipynb_checkpoints/
-*/.ipynb_checkpoints/
-
-# Dataset (too large for Git)
-data/raw/
-data/processed/
-data/cache/
-*.zip
-*.npy
-*.npz
-*.tfrecord
-
 # Testing / coverage
 .pytest_cache/
 .coverage
@@ -40,5 +27,3 @@ htmlcov/
 # OS files
 .DS_Store
 Thumbs.db
-
-.kaggle.txt
